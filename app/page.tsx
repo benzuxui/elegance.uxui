@@ -274,6 +274,11 @@ export default function Home() {
               <label>
                 ระยะเวลาดำเนินการ
                 <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>
+                  <option value={1}>1 วัน</option>
+                  <option value={2}>2 วัน</option>
+                  <option value={3}>3 วัน</option>
+                  <option value={4}>4 วัน</option>
+                  <option value={5}>5 วัน</option>
                   <option value={7}>1 สัปดาห์</option>
                   <option value={14}>1 Sprint (2 สัปดาห์)</option>
                   <option value={21}>1.5 Sprint (3 สัปดาห์)</option>
