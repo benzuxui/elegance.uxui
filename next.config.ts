@@ -1,7 +1,7 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  /* config options here */
+const nextConfig = {
+  output: "export",
+  basePath: process.env.GITHUB_ACTIONS ? "/elegance.uxui" : "",
+  trailingSlash: true,
 };
 
 export default nextConfig;
