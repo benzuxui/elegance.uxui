@@ -11,7 +11,7 @@ type Project = {
 };
 
 const DAY = 86_400_000;
-const COLORS = ["#b9d6dd", "#f1c5c8", "#dc7e69", "#d9e9a5", "#c8c2e8", "#f1d69b"];
+const COLORS = ["#EDCEC5", "#C9DDE0", "#D9E8C6", "#E5D7EE", "#F3DFAD", "#F2C8B6"];
 const THAI_DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 const THAI_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
