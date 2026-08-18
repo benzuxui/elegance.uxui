@@ -372,7 +372,7 @@ export default function Home() {
             <div className="date-row" role="row">
               <div className="date-spacer" />
               {dates.map((date, index) => (
-                <div className={`date-cell ${index === 7 ? "week-start" : ""}`} role="columnheader" key={toISO(date)}>
+                <div className={`date-cell ${index === 7 ? "week-start" : ""} ${date.getDay() === 0 || date.getDay() === 6 ? "weekend" : ""}`} role="columnheader" key={toISO(date)}>
                   <span>{THAI_DAYS[date.getDay()]}</span><strong>{date.getDate()}</strong>
                 </div>
               ))}
@@ -396,7 +396,7 @@ export default function Home() {
                     </div>
                     {dates.map((date, index) => (
                       <span
-                        className={`grid-cell ${index === 7 ? "week-start" : ""}`}
+                        className={`grid-cell ${index === 7 ? "week-start" : ""} ${date.getDay() === 0 || date.getDay() === 6 ? "weekend" : ""}`}
                         style={{ gridColumn: index + 2 }}
                         key={toISO(date)}
                       />
