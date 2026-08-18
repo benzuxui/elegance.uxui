@@ -412,10 +412,7 @@ export default function Home() {
           </div>
           <div className="toolbar-actions">
             <button className="pdf-button" onClick={downloadSprintPdf} disabled={isExporting}>
-              {isExporting ? "กำลังสร้าง PDF…" : "↓ ดาวน์โหลด PDF"}
-            </button>
-            <button className="outline-button" onClick={() => { setTargetSprint("next"); setProjectStart(toISO(nextWorkingDay(nextSprintStart))); setDuration(10); setProjectName(""); setShowForm(true); }}>
-              วางแผน Sprint ถัดไป <span>→</span>
+              {isExporting ? "กำลังสร้าง PDF…" : <><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 15h8M12 11v7m0 0-3-3m3 3 3-3" /></svg><span>PDF</span></>}
             </button>
           </div>
         </div>
