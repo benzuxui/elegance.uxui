@@ -10,7 +10,6 @@ type Project = {
   color: string;
 };
 
-const DAY = 86_400_000;
 const FIRST_SPRINT_NUMBER = 20;
 const COLORS = ["#EDCEC5", "#C9DDE0", "#D9E8C6", "#E5D7EE", "#F3DFAD", "#F2C8B6"];
 const THAI_DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
@@ -37,10 +36,62 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
-function dayDiff(from: Date, to: Date) {
-  const utcFrom = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
-  const utcTo = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
-  return Math.round((utcTo - utcFrom) / DAY);
+function isWeekend(date: Date) {
+  return date.getDay() === 0 || date.getDay() === 6;
+}
+
+function nextWorkingDay(date: Date) {
+  let next = new Date(date);
+  while (isWeekend(next)) next = addDays(next, 1);
+  return next;
+}
+
+function previousWorkingDay(date: Date) {
+  let previous = new Date(date);
+  while (isWeekend(previous)) previous = addDays(previous, -1);
+  return previous;
+}
+
+function addWorkingDays(start: Date, duration: number) {
+  let end = nextWorkingDay(start);
+  let remainingDays = Math.max(duration, 1) - 1;
+  while (remainingDays > 0) {
+    end = addDays(end, 1);
+    if (!isWeekend(end)) remainingDays -= 1;
+  }
+  return end;
+}
+
+function getProjectWindow(project: Project) {
+  const start = nextWorkingDay(fromISO(project.startDate));
+  return { start, end: addWorkingDays(start, project.duration) };
+}
+
+function getWorkingSegments(dates: Date[], start: Date, end: Date) {
+  const segments: Array<{ startIndex: number; endIndex: number }> = [];
+  let segmentStart = -1;
+
+  dates.forEach((date, index) => {
+    const isActive = date >= start && date <= end && !isWeekend(date);
+    if (isActive && segmentStart === -1) segmentStart = index;
+    if ((!isActive || index === dates.length - 1) && segmentStart !== -1) {
+      segments.push({ startIndex: segmentStart, endIndex: isActive ? index : index - 1 });
+      segmentStart = -1;
+    }
+  });
+
+  return segments;
+}
+
+function formatDuration(duration: number) {
+  if (duration === 10) return "1 Sprint";
+  if (duration === 15) return "1.5 Sprint";
+  if (duration === 20) return "2 Sprint";
+  return `${duration} วัน`;
+}
+
+function migrateLegacyDuration(duration: number) {
+  return ({ 7: 5, 14: 10, 21: 15, 28: 20 } as Record<number, number>)[duration] ?? duration;
 }
 
 function formatShortDate(date: Date) {
@@ -106,7 +157,7 @@ export default function Home() {
   const [projectName, setProjectName] = useState("");
   const [targetSprint, setTargetSprint] = useState<"current" | "next">("current");
   const [projectStart, setProjectStart] = useState("2026-08-17");
-  const [duration, setDuration] = useState(14);
+  const [duration, setDuration] = useState(10);
   const [ready, setReady] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
@@ -127,7 +178,10 @@ export default function Home() {
       try {
         const data = JSON.parse(saved);
         setPlanningStart(data.planningStart ?? "2026-08-17");
-        setProjects(data.projects ?? starterProjects);
+        const storedProjects = data.projects ?? starterProjects;
+        setProjects(data.businessDayDurations
+          ? storedProjects
+          : storedProjects.map((project: Project) => ({ ...project, duration: migrateLegacyDuration(project.duration) })));
       } catch {
         // Use the illustrated starter board when local data is unavailable.
       }
@@ -137,23 +191,23 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready) return;
-    window.localStorage.setItem("sprintline-sprint-board-v2", JSON.stringify({ planningStart, projects }));
+    window.localStorage.setItem("sprintline-sprint-board-v2", JSON.stringify({ planningStart, projects, businessDayDurations: true }));
   }, [planningStart, projects, ready]);
 
   useEffect(() => {
-    setProjectStart(toISO(formSprintStart));
+    setProjectStart(toISO(nextWorkingDay(formSprintStart)));
   }, [targetSprint, activeSprint, planningStart, formSprintStart]);
 
   const visibleProjects = useMemo(() => projects.filter((project) => {
     const start = fromISO(project.startDate);
-    const end = addDays(start, project.duration - 1);
+    const end = getProjectWindow(project).end;
     return start <= sprintEnd && end >= sprintStart;
   }), [projects, sprintStart, sprintEnd]);
 
   function openAddProject() {
     setTargetSprint("current");
-    setProjectStart(toISO(sprintStart));
-    setDuration(14);
+    setProjectStart(toISO(nextWorkingDay(sprintStart)));
+    setDuration(10);
     setProjectName("");
     setShowForm(true);
   }
@@ -162,14 +216,14 @@ export default function Home() {
     event.preventDefault();
     const name = projectName.trim();
     if (!name) return;
-    const start = fromISO(projectStart);
+    const start = nextWorkingDay(fromISO(projectStart));
     if (start < formSprintStart || start > formSprintEnd) return;
     setProjects((current) => [
       ...current,
       {
         id: Date.now(),
         name,
-        startDate: projectStart,
+        startDate: toISO(start),
         duration,
         color: COLORS[current.length % COLORS.length],
       },
@@ -204,7 +258,7 @@ export default function Home() {
         while (context.measureText(value).width > projectColumn - 82 && value.length > 2) value = `${value.slice(0, -2)}…`;
         return value;
       };
-      const durationText = (days: number) => days < 7 ? `${days} วัน` : days === 7 ? "1 สัปดาห์" : days === 21 ? "1.5 Sprint" : `${days / 14} Sprint`;
+      const durationText = (days: number) => formatDuration(days);
 
       context.fillStyle = "#fffaf8";
       context.fillRect(0, 0, width, height);
@@ -253,18 +307,22 @@ export default function Home() {
 
       dates.forEach((date, index) => {
         const x = margin + projectColumn + dayWidth * index;
+        if (isWeekend(date)) {
+          context.fillStyle = "#f3f1f0";
+          context.fillRect(x, tableTop + weekHeight, dayWidth, dateHeight + rowHeight * Math.max(visibleProjects.length, 1));
+        }
         context.strokeStyle = index === 7 ? "#dfc7bf" : "#f0e2dd";
         context.beginPath();
         context.moveTo(x, tableTop + weekHeight);
         context.lineTo(x, tableTop + weekHeight + dateHeight + rowHeight * Math.max(visibleProjects.length, 1));
         context.stroke();
-        context.fillStyle = "#faebe6";
+        context.fillStyle = isWeekend(date) ? "#e9e5e3" : "#faebe6";
         roundedRect(context, x + dayWidth / 2 - 18, tableTop + weekHeight + 13, 36, 22, 11);
         context.fill();
-        context.fillStyle = "#927c76";
+        context.fillStyle = isWeekend(date) ? "#a79d99" : "#927c76";
         context.font = `700 13px ${font}`;
         context.fillText(THAI_DAYS[date.getDay()], x + dayWidth / 2, tableTop + weekHeight + 29);
-        context.fillStyle = "#4b3f3c";
+        context.fillStyle = isWeekend(date) ? "#9d928e" : "#4b3f3c";
         context.font = `700 25px ${font}`;
         context.fillText(String(date.getDate()), x + dayWidth / 2, tableTop + weekHeight + 62);
       });
@@ -272,12 +330,8 @@ export default function Home() {
 
       visibleProjects.forEach((project, projectIndex) => {
         const y = rowTop + projectIndex * rowHeight;
-        const start = fromISO(project.startDate);
-        const end = addDays(start, project.duration - 1);
-        const visibleStart = start < sprintStart ? sprintStart : start;
-        const visibleEnd = end > sprintEnd ? sprintEnd : end;
-        const startDay = dayDiff(sprintStart, visibleStart);
-        const endDay = dayDiff(sprintStart, visibleEnd);
+        const { start, end } = getProjectWindow(project);
+        const segments = getWorkingSegments(dates, start, end);
         context.strokeStyle = "#f0e2dd";
         context.beginPath();
         context.moveTo(margin, y + rowHeight);
@@ -290,15 +344,19 @@ export default function Home() {
         context.fillStyle = "#514440";
         context.font = `600 ${Math.min(19, rowHeight * .3)}px ${font}`;
         context.fillText(projectText(project.name), margin + 46, y + rowHeight / 2 + 7);
-        const barX = margin + projectColumn + startDay * dayWidth + 6;
-        const barWidth = Math.max(44, (endDay - startDay + 1) * dayWidth - 12);
         const barHeight = Math.min(42, rowHeight - 20);
-        roundedRect(context, barX, y + (rowHeight - barHeight) / 2, barWidth, barHeight, 11);
-        context.fillStyle = project.color;
-        context.fill();
-        context.fillStyle = "#5c4641";
-        context.font = `800 14px ${font}`;
-        context.fillText(durationText(project.duration), barX + 12, y + rowHeight / 2 + 5);
+        segments.forEach((segment, segmentIndex) => {
+          const barX = margin + projectColumn + segment.startIndex * dayWidth + 6;
+          const barWidth = Math.max(44, (segment.endIndex - segment.startIndex + 1) * dayWidth - 12);
+          roundedRect(context, barX, y + (rowHeight - barHeight) / 2, barWidth, barHeight, 11);
+          context.fillStyle = project.color;
+          context.fill();
+          if (segmentIndex === 0) {
+            context.fillStyle = "#5c4641";
+            context.font = `800 14px ${font}`;
+            context.fillText(durationText(project.duration), barX + 12, y + rowHeight / 2 + 5);
+          }
+        });
       });
       if (visibleProjects.length === 0) {
         context.fillStyle = "#887a75";
@@ -356,7 +414,7 @@ export default function Home() {
             <button className="pdf-button" onClick={downloadSprintPdf} disabled={isExporting}>
               {isExporting ? "กำลังสร้าง PDF…" : "↓ ดาวน์โหลด PDF"}
             </button>
-            <button className="outline-button" onClick={() => { setTargetSprint("next"); setProjectStart(toISO(nextSprintStart)); setDuration(14); setProjectName(""); setShowForm(true); }}>
+            <button className="outline-button" onClick={() => { setTargetSprint("next"); setProjectStart(toISO(nextWorkingDay(nextSprintStart))); setDuration(10); setProjectName(""); setShowForm(true); }}>
               วางแผน Sprint ถัดไป <span>→</span>
             </button>
           </div>
@@ -379,12 +437,8 @@ export default function Home() {
             </div>
             <div className="project-rows" role="rowgroup">
               {visibleProjects.map((project) => {
-                const projectStartDate = fromISO(project.startDate);
-                const projectEndDate = addDays(projectStartDate, project.duration - 1);
-                const visibleStart = projectStartDate < sprintStart ? sprintStart : projectStartDate;
-                const visibleEnd = projectEndDate > sprintEnd ? sprintEnd : projectEndDate;
-                const startDay = dayDiff(sprintStart, visibleStart);
-                const endDay = dayDiff(sprintStart, visibleEnd);
+                const { start: projectStartDate, end: projectEndDate } = getProjectWindow(project);
+                const segments = getWorkingSegments(dates, projectStartDate, projectEndDate);
                 const continuesBefore = projectStartDate < sprintStart;
                 const continuesAfter = projectEndDate > sprintEnd;
                 return (
@@ -401,15 +455,18 @@ export default function Home() {
                         key={toISO(date)}
                       />
                     ))}
-                    <div
-                      className={`project-bar ${continuesBefore ? "continues-before" : ""} ${continuesAfter ? "continues-after" : ""}`}
-                      style={{ gridColumn: `${startDay + 2} / ${endDay + 3}`, background: project.color }}
-                      title={`${project.name}: ${formatRange(projectStartDate, projectEndDate)}`}
-                    >
-                      {continuesBefore && <span aria-hidden="true">‹</span>}
-                      <b>{project.duration >= 14 ? `${Math.round(project.duration / 7 * 10) / 10} สัปดาห์` : `${project.duration} วัน`}</b>
-                      {continuesAfter && <span aria-hidden="true">›</span>}
-                    </div>
+                    {segments.map((segment, segmentIndex) => (
+                      <div
+                        className={`project-bar ${segmentIndex === 0 && continuesBefore ? "continues-before" : ""} ${segmentIndex === segments.length - 1 && continuesAfter ? "continues-after" : ""}`}
+                        style={{ gridColumn: `${segment.startIndex + 2} / ${segment.endIndex + 3}`, background: project.color }}
+                        title={`${project.name}: ${formatRange(projectStartDate, projectEndDate)}`}
+                        key={`${project.id}-${segment.startIndex}`}
+                      >
+                        {segmentIndex === 0 && continuesBefore && <span aria-hidden="true">‹</span>}
+                        {segmentIndex === 0 && <b>{formatDuration(project.duration)}</b>}
+                        {segmentIndex === segments.length - 1 && continuesAfter && <span aria-hidden="true">›</span>}
+                      </div>
+                    ))}
                   </div>
                 );
               })}
@@ -456,7 +513,13 @@ export default function Home() {
             <div className="modal-fields">
               <label>
                 วันเริ่มงาน
-                <input type="date" min={toISO(formSprintStart)} max={toISO(formSprintEnd)} value={projectStart} onChange={(event) => setProjectStart(event.target.value)} />
+                <input
+                  type="date"
+                  min={toISO(nextWorkingDay(formSprintStart))}
+                  max={toISO(previousWorkingDay(formSprintEnd))}
+                  value={projectStart}
+                  onChange={(event) => setProjectStart(toISO(nextWorkingDay(fromISO(event.target.value))))}
+                />
               </label>
               <label>
                 ระยะเวลาดำเนินการ
@@ -466,14 +529,13 @@ export default function Home() {
                   <option value={3}>3 วัน</option>
                   <option value={4}>4 วัน</option>
                   <option value={5}>5 วัน</option>
-                  <option value={7}>1 สัปดาห์</option>
-                  <option value={14}>1 Sprint (2 สัปดาห์)</option>
-                  <option value={21}>1.5 Sprint (3 สัปดาห์)</option>
-                  <option value={28}>2 Sprint (4 สัปดาห์)</option>
+                  <option value={10}>1 Sprint (10 วันทำงาน)</option>
+                  <option value={15}>1.5 Sprint (15 วันทำงาน)</option>
+                  <option value={20}>2 Sprint (20 วันทำงาน)</option>
                 </select>
               </label>
             </div>
-            <p className="form-hint">เริ่มโปรเจกต์ได้เฉพาะใน Sprint ปัจจุบันหรือ Sprint ถัดไป และกำหนดระยะงานได้สูงสุด 2 Sprint</p>
+            <p className="form-hint">เสาร์–อาทิตย์เป็นวันหยุดและไม่นับเป็นระยะเวลาดำเนินงาน งานที่คาบเกี่ยวจะต่อในวันจันทร์อัตโนมัติ</p>
             <div className="modal-actions">
               <button type="button" className="ghost-button" onClick={() => setShowForm(false)}>ยกเลิก</button>
               <button type="submit" className="primary-button">เพิ่มโปรเจกต์</button>
