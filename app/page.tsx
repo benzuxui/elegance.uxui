@@ -11,14 +11,19 @@ type Project = {
 };
 
 const FIRST_SPRINT_NUMBER = 20;
-const COLORS = ["#EDCEC5", "#C9DDE0", "#D9E8C6", "#E5D7EE", "#F3DFAD", "#F2C8B6"];
+const COLOR_PALETTE = [
+  { value: "#EDCEC5", tone: "warm" },
+  { value: "#C9DDE0", tone: "cool" },
+  { value: "#F3DFAD", tone: "warm" },
+  { value: "#E5D7EE", tone: "cool" },
+];
 const THAI_DAYS = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 const THAI_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
 const starterProjects: Project[] = [
-  { id: 1, name: "Saas CL: Gold Trading System V. 1.0.0", startDate: "2026-08-17", duration: 5, color: COLORS[0] },
-  { id: 2, name: "Ausiris Silver", startDate: "2026-08-17", duration: 3, color: COLORS[1] },
-  { id: 3, name: "Marketing x ABAC V 1.0.0", startDate: "2026-08-20", duration: 1, color: COLORS[2] },
+  { id: 1, name: "Saas CL: Gold Trading System V. 1.0.0", startDate: "2026-08-17", duration: 5, color: COLOR_PALETTE[0].value },
+  { id: 2, name: "Ausiris Silver", startDate: "2026-08-17", duration: 3, color: COLOR_PALETTE[1].value },
+  { id: 3, name: "Marketing x ABAC V 1.0.0", startDate: "2026-08-20", duration: 1, color: COLOR_PALETTE[2].value },
 ];
 
 function fromISO(value: string) {
@@ -92,6 +97,38 @@ function formatDuration(duration: number) {
 
 function migrateLegacyDuration(duration: number) {
   return ({ 7: 5, 14: 10, 21: 15, 28: 20 } as Record<number, number>)[duration] ?? duration;
+}
+
+function colorDetails(color: string) {
+  return COLOR_PALETTE.find((item) => item.value.toLowerCase() === color.toLowerCase());
+}
+
+function nextProjectColor(projects: Project[]) {
+  const lastColor = projects.at(-1)?.color;
+  const lastIndex = lastColor ? COLOR_PALETTE.findIndex((item) => item.value.toLowerCase() === lastColor.toLowerCase()) : -1;
+  const lastTone = lastColor ? colorDetails(lastColor)?.tone : undefined;
+  const usedColors = new Set(projects.map((project) => project.color.toLowerCase()));
+  const availableColors = COLOR_PALETTE.filter((item) => !usedColors.has(item.value.toLowerCase()));
+  const candidates = availableColors.length > 0 ? availableColors : COLOR_PALETTE;
+
+  for (let offset = 1; offset <= COLOR_PALETTE.length; offset += 1) {
+    const candidate = COLOR_PALETTE[(lastIndex + offset + COLOR_PALETTE.length) % COLOR_PALETTE.length];
+    if (candidates.includes(candidate) && candidate.tone !== lastTone) return candidate.value;
+  }
+
+  return candidates[0].value;
+}
+
+function repairProjectColors(projects: Project[]) {
+  return projects.reduce<Project[]>((repaired, project) => {
+    const previous = repaired.at(-1);
+    const isDuplicate = repaired.some((item) => item.color.toLowerCase() === project.color.toLowerCase());
+    const hasSameToneAsPrevious = colorDetails(project.color)?.tone === colorDetails(previous?.color ?? "")?.tone;
+    const color = !colorDetails(project.color) || isDuplicate || hasSameToneAsPrevious
+      ? nextProjectColor(repaired)
+      : project.color;
+    return [...repaired, { ...project, color }];
+  }, []);
 }
 
 function formatShortDate(date: Date) {
@@ -179,9 +216,10 @@ export default function Home() {
         const data = JSON.parse(saved);
         setPlanningStart(data.planningStart ?? "2026-08-17");
         const storedProjects = data.projects ?? starterProjects;
-        setProjects(data.businessDayDurations
+        const durationAdjustedProjects = data.businessDayDurations
           ? storedProjects
-          : storedProjects.map((project: Project) => ({ ...project, duration: migrateLegacyDuration(project.duration) })));
+          : storedProjects.map((project: Project) => ({ ...project, duration: migrateLegacyDuration(project.duration) }));
+        setProjects(repairProjectColors(durationAdjustedProjects));
       } catch {
         // Use the illustrated starter board when local data is unavailable.
       }
@@ -225,7 +263,7 @@ export default function Home() {
         name,
         startDate: toISO(start),
         duration,
-        color: COLORS[current.length % COLORS.length],
+        color: nextProjectColor(current),
       },
     ]);
     setShowForm(false);
